@@ -29,10 +29,8 @@ import { GetModule, GetModuleList, LoadModule, UnloadModule } from './commands/m
 import { GetSource, GetSourceList, SetSourceVolume } from './commands/source'
 import { GetSourceOutput, GetSourceOutputList, MoveSourceOutput } from './commands/sourceOutput'
 
-export interface TCPSocket {
-  port: number
-  host: string
-}
+export type ConnectionAddress = { port: number, host: string, protocol: 'tcp', address: string }
+| { path: string, protocol: 'unix', address: string }
 
 /**
  * Implements the PulseAudio client.
@@ -62,7 +60,7 @@ export default class PulseAudio extends EventEmitter {
   /**
   * @category public
   */
-  public address: TCPSocket
+  public address: ConnectionAddress
   /**
   * @category public
   */
@@ -110,7 +108,17 @@ export default class PulseAudio extends EventEmitter {
   async connect (): Promise<AuthInfo> {
     return await new Promise<AuthInfo>((resolve, reject) => {
       this.socket = new Socket()
-      this.socket.connect(this.address.port, this.address.host)
+
+      const { address } = this
+      switch (address.protocol) {
+        case 'tcp':
+          this.socket.connect({ port: address.port, host: address.host })
+          break
+        case 'unix':
+          this.socket.connect(address.path)
+          break
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-misused-promises
       this.socket.on('connect', async () => {
         this.connected = true
@@ -118,7 +126,7 @@ export default class PulseAudio extends EventEmitter {
         // Authenticate client
         const reply: AuthInfo = await this.authenticate()
         this.protocol = reply.protocol
-        console.log(`Connected to PulseAudio at ${this.address.host}:${this.address.port} using protocol v${this.protocol}`)
+        console.log(`Connected to PulseAudio at ${this.address.address} using protocol v${this.protocol}`)
 
         if (reply.protocol < PA_PROTOCOL_MINIMUM_VERSION) {
           this.disconnect()
@@ -553,20 +561,35 @@ export default class PulseAudio extends EventEmitter {
 
   private parseAddress (address: string): void {
     // reference = tcp:pulseaudio:4317
-    if (address.includes('tcp')) {
-      const split: string[] = address.split(':')
-      this.address = {
-        port: parseInt(split[2] ?? '4317'),
-        host: split[1]
+    const fields = address.split(':')
+    switch (fields[0]) {
+      case 'tcp': {
+        const [protocol, host, port] = fields
+        this.address = {
+          protocol,
+          host,
+          port: parseInt(port ?? '4317'),
+          address
+        }
+      } break
+      case 'unix': {
+        const [protocol, path] = fields
+        this.address = {
+          protocol,
+          path,
+          address
+        }
+      } break
+      default: {
+        const [host, port] = fields
+        if (port === undefined) throw new Error('Unrecognized server address format. Please use "tcp:host:port", "unix:/path/to/socket" or "host:port".')
+        this.address = {
+          protocol: 'tcp',
+          host,
+          port: parseInt(port),
+          address
+        }
       }
-    } else if (address.includes(':')) {
-      const split: string[] = address.split(':')
-      this.address = {
-        port: parseInt(split[1] ?? '4317'),
-        host: split[0]
-      }
-    } else {
-      throw new Error('Unrecognized server address format. Please use "tcp:host:port", "unix:/path/to/socket" or "host:port".')
     }
   }
 

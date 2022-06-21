@@ -1,4 +1,4 @@
-import PulseAudio, { TCPSocket } from './client'
+import PulseAudio, { ConnectionAddress } from './client'
 import {
   AuthInfo,
   ChannelVolume,
@@ -37,5 +37,5 @@ export {
 }
 
 export {
-  TCPSocket
+  ConnectionAddress
 }
